@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Job Analyzer",
+  "version": "1.0.0",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "scripting",
+    "clipboardWrite"
+  ],
+  "commands": {
+    "extract-job": {
+      "suggested_key": {
+        "default": "Alt+J",
+        "mac": "Alt+J"
+      },
+      "description": "Extract current job and copy to clipboard"
+    }
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "index.html"
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/content.ts-TvOiH7lP.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/content.ts-TvOiH7lP.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}
