@@ -1,0 +1,22 @@
+# Ignore the entire backend server
+server/
+
+# Ignore root node configurations
+/node_modules/
+/package.json
+/pnpm-lock.yaml
+
+# Ignore local Google Apps Script backup
+google-apps-script.js
+
+# Caches and logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.zip
