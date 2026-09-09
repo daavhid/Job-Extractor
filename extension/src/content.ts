@@ -54,7 +54,8 @@ async function performQuickExtract(): Promise<void> {
     const simplified = jobs.map((job: JobResult) => ({
       "role name": job.title,
       company: job.company,
-      "job url": job.applyUrl || job.link,
+      "job url": job.link,
+      "direct apply url": job.applyUrl || job.link,
       platform: job.platform || "Generic",
       salary: job.salary || null,
       location: job.location || null,
@@ -70,10 +71,10 @@ async function performQuickExtract(): Promise<void> {
 
     if (copied) {
       const first = jobs[0];
-      showToast("✅ Copied to clipboard!", `${first.title || "Job"} • ${first.company || "Company"}`, "success");
+      showToast("ApplyFlow: Copied to clipboard!", `${first.title || "Job"} • ${first.company || "Company"}`, "success");
       updateButtonState("success");
     } else {
-      showToast("⚠️ Could not access clipboard", "Check clipboard permissions in browser", "warning");
+      showToast("ApplyFlow: Clipboard error", "Check browser clipboard permissions", "warning");
       updateButtonState("idle");
     }
   } catch (err) {
@@ -126,22 +127,22 @@ function initFloatingWidget(): void {
       .action-pill {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
+        gap: 7px;
+        background: linear-gradient(135deg, #0d0d1a 0%, #16152b 100%);
         color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(99, 102, 241, 0.35);
         border-radius: 9999px;
-        padding: 8px 14px 8px 12px;
-        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+        padding: 6px 12px 6px 9px;
+        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 0 16px -2px rgba(79, 70, 229, 0.25);
         cursor: pointer;
         user-select: none;
         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .action-pill:hover {
         transform: translateY(-2px);
-        background: linear-gradient(135deg, #27272a 0%, #3f3f46 100%);
-        box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.6), 0 4px 12px -2px rgba(0, 0, 0, 0.4);
-        border-color: rgba(255, 255, 255, 0.3);
+        background: linear-gradient(135deg, #131326 0%, #1e1d3b 100%);
+        box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.7), 0 0 20px -2px rgba(79, 70, 229, 0.45);
+        border-color: rgba(99, 102, 241, 0.6);
       }
       .action-pill:active {
         transform: translateY(0) scale(0.98);
@@ -150,36 +151,40 @@ function initFloatingWidget(): void {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
-        background: rgba(236, 72, 153, 0.2);
-        color: #f472b6;
-        font-size: 14px;
+        background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+        color: #ffffff;
+        font-size: 12px;
+        box-shadow: 0 0 8px rgba(79, 70, 229, 0.5);
       }
       .label-text {
-        font-size: 13px;
-        font-weight: 600;
+        font-size: 12px;
+        font-weight: 700;
         letter-spacing: -0.01em;
+        background: linear-gradient(135deg, #ffffff 60%, #c7d2fe 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
       }
       .shortcut-chip {
-        font-size: 10px;
+        font-size: 9.5px;
         font-weight: 700;
-        background: rgba(255, 255, 255, 0.12);
-        color: #a1a1aa;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 5px;
-        padding: 2px 5px;
+        background: rgba(255, 255, 255, 0.09);
+        color: #94a3b8;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 4px;
+        padding: 1.5px 4.5px;
         letter-spacing: 0.02em;
       }
       .collapse-btn {
         background: transparent;
         border: none;
-        color: #71717a;
+        color: #64748b;
         cursor: pointer;
         padding: 2px 4px;
         border-radius: 4px;
-        font-size: 12px;
+        font-size: 11px;
         line-height: 1;
         transition: color 0.15s;
         margin-left: 2px;
@@ -189,36 +194,36 @@ function initFloatingWidget(): void {
       }
       /* Minimized Circle Mode */
       .circle-btn {
-        width: 44px;
-        height: 44px;
+        width: 40px;
+        height: 40px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
-        color: #f472b6;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+        background: linear-gradient(135deg, #0d0d1a 0%, #1e1b4b 100%);
+        color: #38bdf8;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.6), 0 0 16px rgba(79, 70, 229, 0.3);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 18px;
+        font-size: 16px;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .circle-btn:hover {
         transform: translateY(-2px) scale(1.05);
-        border-color: rgba(244, 114, 182, 0.5);
-        box-shadow: 0 10px 26px -4px rgba(236, 72, 153, 0.3);
+        border-color: rgba(56, 189, 248, 0.6);
+        box-shadow: 0 10px 26px -4px rgba(79, 70, 229, 0.5);
       }
       /* Toast Banner */
       .toast {
-        background: rgba(24, 24, 27, 0.95);
+        background: rgba(13, 14, 26, 0.95);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
-        padding: 10px 14px;
-        max-width: 320px;
-        box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        border-radius: 10px;
+        padding: 8px 12px;
+        max-width: 300px;
+        box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.7), 0 0 20px -4px rgba(79, 70, 229, 0.25);
         opacity: 0;
         transform: translateY(10px) scale(0.95);
         transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -228,22 +233,22 @@ function initFloatingWidget(): void {
         transform: translateY(0) scale(1);
       }
       .toast-header {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         margin-bottom: 2px;
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
       }
       .toast-body {
-        font-size: 11px;
-        color: #a1a1aa;
-        line-height: 1.4;
+        font-size: 10.5px;
+        color: #94a3b8;
+        line-height: 1.35;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .toast.success .toast-header { color: #4ade80; }
+      .toast.success .toast-header { color: #34d399; }
       .toast.error .toast-header { color: #f87171; }
       .toast.warning .toast-header { color: #fbbf24; }
 
@@ -276,9 +281,9 @@ function initFloatingWidget(): void {
 
 function renderPillHtml(): string {
   return `
-    <div id="extractBtn" class="action-pill" title="Click to Extract & Copy JSON (or press Alt+J)">
+    <div id="extractBtn" class="action-pill" title="ApplyFlow Job Extractor (Alt+J) - Click to Extract & Copy">
       <div class="icon-bolt">⚡</div>
-      <span id="btnLabel" class="label-text">Extract Job</span>
+      <span id="btnLabel" class="label-text">ApplyFlow</span>
       <span class="shortcut-chip">Alt+J</span>
       <button id="collapseBtn" class="collapse-btn" title="Minimize button">✕</button>
     </div>
@@ -287,7 +292,7 @@ function renderPillHtml(): string {
 
 function renderCircleHtml(): string {
   return `
-    <div id="expandBtn" class="circle-btn" title="Job Extractor (Alt+J) - Click to open">
+    <div id="expandBtn" class="circle-btn" title="ApplyFlow Job Extractor (Alt+J) - Click to open">
       ⚡
     </div>
   `;
@@ -344,7 +349,7 @@ function updateButtonState(state: "idle" | "extracting" | "success"): void {
       if (icon) icon.textContent = "✓";
     } else {
       pill.classList.remove("extracting");
-      label.textContent = "Extract Job";
+      label.textContent = "ApplyFlow";
       if (icon) icon.textContent = "⚡";
     }
   }

@@ -1,4 +1,4 @@
-// popup.ts – MULTI-PLATFORM FIXED VERSION: extract, analyze, auto‑save to sheet on "apply"
+// popup.ts – ApplyFlow Job Extractor
 import { extractMainWorldPageData } from "./mainWorldHelper";
 
 interface JobResult {
@@ -24,11 +24,6 @@ interface PlatformInfo {
 
 let extractedJobs: JobResult[] = [];
 
-// ── CONFIGURATION ─────────────────────────────────────────────────
-const ANALYSIS_API_URL = "http://localhost:4000/api/jobs/analyze";
-const SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxJuxxKgtyNYQ-X010AtiU8551-425-1BkK0oB-nl6q1Sv4kqlcPdEuIuYEeNKfjEGL/exec";
-// ──────────────────────────────────────────────────────────────────
-
 // ── Utilities ────────────────────────────────────────────────────
 async function getCurrentTab(): Promise<chrome.tabs.Tab> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -53,7 +48,6 @@ function getPlatformInfo(url: string | undefined): PlatformInfo {
     return { name: "ZipRecruiter", supported: true, isJobPage: true };
   }
   
-  // Generic job page identification heuristics
   const isCommonJobKeywords = lowUrl.includes("/jobs/") || 
                                lowUrl.includes("/job/") || 
                                lowUrl.includes("/careers/") || 
@@ -90,35 +84,35 @@ function getEl<T extends HTMLElement>(id: string): T {
 
 // ── Render functions ─────────────────────────────────────────────
 function renderControls(platformInfo: PlatformInfo): void {
-  const badgeClass = platformInfo.supported ? "badge-supported" : "badge-generic";
+  // Update header platform badge
+  const headerBadge = document.getElementById("platformHeaderBadge");
+  const headerName = document.getElementById("platformHeaderName");
+  if (headerBadge && headerName) {
+    headerName.textContent = platformInfo.name;
+    headerBadge.className = platformInfo.supported ? "platform-chip supported" : "platform-chip";
+  }
+
   const alertHtml = (!platformInfo.supported && !platformInfo.isJobPage)
-    ? `<div class="warning-banner">⚠️ This page is not a recognized job board, but you can try generic extraction.</div>`
+    ? `<div class="warning-banner">⚠️ Generic page detected. Best results on LinkedIn, HiringCafe, ZipRecruiter, & JobRight.</div>`
     : "";
 
   getEl("mainContent").innerHTML = `
-    <div class="platform-container">
-      <span class="platform-label">Detected Platform:</span>
-      <span class="platform-badge ${badgeClass}">${platformInfo.name}</span>
-    </div>
     ${alertHtml}
     <div class="controls">
       <button id="extractBtn">⚡ Extract Job</button>
       <button id="copyBtn">📋 Copy JSON</button>
-      <button id="exportBtn">⬇ Export CSV</button>
-      <button id="clearBtn" title="Clear retained details">✕</button>
-      <button id="analyzeBtn" style="display:none;">🔍 Analyze with AI</button>
-      <button id="debugBtn" style="display:none;">🐛 Debug</button>
+      <button id="exportBtn">⬇ CSV</button>
+      <button id="clearBtn" title="Clear details">✕</button>
+      <button id="debugBtn" style="display:none;">🐛</button>
     </div>
-    <div class="status info" id="status">Click Extract to read the job.</div>
+    <div class="status info" id="status">Click Extract to capture job details.</div>
     <div id="results"></div>
-    <div id="analysis" class="analysis-container"></div>
   `;
 
   getEl("extractBtn").addEventListener("click", doExtract);
   getEl("copyBtn").addEventListener("click", copyJSON);
   getEl("exportBtn").addEventListener("click", exportCSV);
   getEl("clearBtn").addEventListener("click", clearDetails);
-  getEl("analyzeBtn").addEventListener("click", doAnalyze);
   const debugBtn = document.getElementById("debugBtn");
   if (debugBtn) debugBtn.addEventListener("click", debugData);
 }
@@ -127,44 +121,56 @@ function renderResults(jobs: JobResult[]): void {
   const container = getEl("results");
   
   if (!jobs || jobs.length === 0) {
-    container.innerHTML = `<div class="job-card"><p style="color: #666;">No jobs to display</p></div>`;
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚡</div>
+        <div class="empty-title">Ready to Capture</div>
+        <div class="empty-subtitle">Navigate to any job listing and click <strong>Extract Job</strong> or press <strong>Alt+J</strong></div>
+      </div>
+    `;
     return;
   }
 
-  console.log("[Popup] Rendering jobs:", jobs);
+  console.log("[ApplyFlow Popup] Rendering jobs:", jobs);
 
   container.innerHTML = jobs.map((job, i) => {
-    const modelClass = job.workModel ? `model-${job.workModel.toLowerCase()}` : '';
     return `
     <div class="job-card">
-      <div class="job-number">#${i + 1}</div>
-      <div class="job-title">${esc(job.title) || "<em>No title</em>"}</div>
+      <div class="card-top">
+        <div class="job-title">${esc(job.title) || "<em>No title found</em>"}</div>
+        <div class="job-number">#${i + 1}</div>
+      </div>
       <div class="job-company">${esc(job.company) || "Unknown company"}</div>
       
-      <div class="job-metadata">
-        ${job.salary ? `<div class="meta-item"><span>💰 Salary:</span> <strong>${esc(job.salary)}</strong></div>` : ''}
-        ${job.location ? `<div class="meta-item"><span>📍 Location:</span> <strong>${esc(job.location)}</strong></div>` : ''}
-        ${job.workModel ? `<div class="meta-item"><span>🏢 Model:</span> <span class="model-tag ${modelClass}">${esc(job.workModel)}</span></div>` : ''}
+      <div class="meta-chips">
+        ${job.salary ? `<span class="meta-chip chip-salary">💰 ${esc(job.salary)}</span>` : ''}
+        ${job.location ? `<span class="meta-chip chip-location">📍 ${esc(job.location)}</span>` : ''}
+        ${job.workModel ? `<span class="meta-chip chip-model">🏢 ${esc(job.workModel)}</span>` : ''}
       </div>
 
-      <div class="job-link">
-        <strong>🔗 Job URL:</strong> 
-        ${job.link ? `<a href="${esc(job.link)}" target="_blank" style="color: #0066cc; word-break: break-all;">${esc(job.link)}</a>` : "<em>No link</em>"}
-      </div>
-      ${job.applyUrl ? `
-        <div class="job-apply-url">
-          <strong>📝 Apply URL:</strong> 
-          <a href="${esc(job.applyUrl)}" target="_blank" style="color: #2e7d32; word-break: break-all;">${esc(job.applyUrl)}</a>
+      <div class="link-row">
+        <div class="link-item">
+          <strong>Job URL:</strong>
+          ${job.link ? `<a href="${esc(job.link)}" target="_blank" title="${esc(job.link)}">${esc(job.link)}</a>` : "<em>None</em>"}
         </div>
-      ` : ''}
-      <div class="job-source">
-        <small>Platform: ${job.platform || "Generic"} | Source: ${job.source || "unknown"}</small>
+        ${job.applyUrl && job.applyUrl !== job.link ? `
+          <div class="link-item apply-link">
+            <strong>Apply URL:</strong>
+            <a href="${esc(job.applyUrl)}" target="_blank" title="${esc(job.applyUrl)}">${esc(job.applyUrl)}</a>
+          </div>
+        ` : ''}
       </div>
+
       ${job.description
-        ? `<span class="desc-toggle" data-idx="${i}">▶ Show description</span>
+        ? `<span class="desc-toggle" data-idx="${i}">▶ View Description (${job.description.length.toLocaleString()} chars)</span>
            <div class="job-description" id="desc-${i}">${esc(job.description)}</div>`
-        : `<span class="desc-toggle no-desc">No description</span>`
+        : `<span class="desc-toggle no-desc">No description available</span>`
       }
+
+      <div class="job-footer">
+        <span>Platform: ${esc(job.platform || "Generic")}</span>
+        <span>Source: ${esc(job.source || "detail-page")}</span>
+      </div>
     </div>
   `}).join("");
 
@@ -174,19 +180,13 @@ function renderResults(jobs: JobResult[]): void {
       const descEl = document.getElementById(`desc-${idx}`);
       if (!descEl) return;
       const open = descEl.classList.toggle("open");
-      toggle.textContent = (open ? "▼ Hide" : "▶ Show") + " description";
+      toggle.textContent = (open ? "▼ Hide" : "▶ View") + " Description";
     });
   });
 }
 
-
-
 // ── Debug Function ──────────────────────────────────────────────
 async function debugData(): Promise<void> {
-  console.log("=== DEBUG: Current extractedJobs ===");
-  console.log(JSON.stringify(extractedJobs, null, 2));
-  console.log("=== DEBUG: End ===");
-  
   const tab = await getCurrentTab();
   try {
     let mainWorldData: any = null;
@@ -209,7 +209,7 @@ async function debugData(): Promise<void> {
     };
     const reportStr = JSON.stringify(debugReport, null, 2);
     await navigator.clipboard.writeText(reportStr);
-    alert("Debug diagnostics copied to clipboard! Please paste them here.");
+    alert("ApplyFlow diagnostics copied to clipboard!");
   } catch (err) {
     alert("Error gathering diagnostics: " + (err instanceof Error ? err.message : String(err)));
   }
@@ -218,18 +218,15 @@ async function debugData(): Promise<void> {
 // ── Extraction ──────────────────────────────────────────────────
 async function doExtract(): Promise<void> {
   const tab = await getCurrentTab();
-  const analyzeBtn = getEl<HTMLButtonElement>("analyzeBtn");
   const debugBtn = document.getElementById("debugBtn") as HTMLButtonElement;
 
-  setStatus("⏳ Extracting…", "info");
+  setStatus("⏳ Capturing job details…", "info");
   getEl("results").innerHTML = "";
-  getEl("analysis").innerHTML = "";
-  analyzeBtn.style.display = "none";
   if (debugBtn) debugBtn.style.display = "none";
   getEl<HTMLButtonElement>("extractBtn").disabled = true;
 
   try {
-    console.log("[Popup] 📤 Inspecting main world on tab:", tab.id);
+    console.log("[ApplyFlow Popup] 📤 Inspecting page world on tab:", tab.id);
 
     let mainWorldData: any = null;
     try {
@@ -239,26 +236,25 @@ async function doExtract(): Promise<void> {
         func: extractMainWorldPageData
       });
       mainWorldData = injectionResults?.[0]?.result;
-      console.log("[Popup] Main world data from page:", mainWorldData);
+      console.log("[ApplyFlow Popup] Main world data:", mainWorldData);
     } catch (e) {
-      console.warn("[Popup] Could not execute main world script:", e);
+      console.warn("[ApplyFlow Popup] Main world execution skipped:", e);
     }
 
-    console.log("[Popup] 📤 Sending extractJobs to tab:", tab.id);
+    console.log("[ApplyFlow Popup] 📤 Sending extractJobs to tab:", tab.id);
     
     const response = await chrome.tabs.sendMessage(tab.id!, {
       action: "extractJobs",
       mainWorldData
     });
     
-    console.log("[Popup] 📥 Response received:", response);
+    console.log("[ApplyFlow Popup] 📥 Response received:", response);
     
     if (!response?.jobs?.length) {
-      setStatus("❌ No job details found. Make sure you are on a job details section.", "error");
+      setStatus("❌ No job details found. Open a job details page first.", "error");
       return;
     }
 
-    // Map and ensure all fields are present
     extractedJobs = response.jobs.map((job: any) => {
       const pageLink = job.link || tab.url || "No URL found";
       const applyUrl = job.applyUrl || pageLink;
@@ -276,9 +272,7 @@ async function doExtract(): Promise<void> {
       };
     });
 
-    console.log("[Popup] ✅ Processed jobs:", extractedJobs);
-
-    // Persist to chrome.storage.local so details are retained
+    // Retain to storage for convenience
     try {
       await chrome.storage.local.set({
         savedJobs: extractedJobs,
@@ -286,126 +280,32 @@ async function doExtract(): Promise<void> {
         savedTime: Date.now()
       });
     } catch (e) {
-      console.warn("[Popup] Could not save extracted jobs to storage:", e);
+      console.warn("[ApplyFlow Popup] Could not persist to storage:", e);
     }
 
-    setStatus(`` + (extractedJobs.length === 1 ? `✅ Job details extracted` : `✅ ${extractedJobs.length} job(s) extracted`), "success");
+    setStatus(extractedJobs.length === 1 ? `✅ Captured: ${extractedJobs[0].title || "Job"}` : `✅ Captured ${extractedJobs.length} jobs`, "success");
     renderResults(extractedJobs);
-    analyzeBtn.style.display = "inline-block";
     if (debugBtn) debugBtn.style.display = "inline-block";
   } catch (err) {
-    console.error("[Popup] ❌ Extraction error:", err);
+    console.error("[ApplyFlow Popup] ❌ Extraction error:", err);
     setStatus(`❌ Error: ${err instanceof Error ? err.message : "Could not communicate with tab. Refresh page and try again."}`, "error");
   } finally {
     getEl<HTMLButtonElement>("extractBtn").disabled = false;
   }
 }
 
-// ── Analyze + Auto‑save to Google Sheet if "apply" ──────────────
-async function doAnalyze(): Promise<void> {
-  if (!extractedJobs.length) {
-    setStatus("❌ Extract a job first!", "error");
-    return;
-  }
-
-  const analyzeBtn = getEl<HTMLButtonElement>("analyzeBtn");
-  analyzeBtn.disabled = true;
-  setStatus("⏳ Sending to AI…", "info");
-  getEl("analysis").innerHTML = "";
-
-  try {
-    const job = extractedJobs[0];
-    console.log("[Popup] 📤 Sending job to AI:", job);
-
-    // 1. Call AI backend
-    const res = await fetch(ANALYSIS_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(job),
-    });
-    if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
-    const analysis = await res.json();
-    console.log("[Popup] 📥 AI Response:", analysis);
-
-    // 2. Display analysis
-    getEl("analysis").innerHTML = `
-      <div class="analysis-card">
-        <h3>📊 AI Analysis</h3>
-        <pre>${esc(JSON.stringify(analysis, null, 2))}</pre>
-      </div>`;
-    setStatus("✅ Analysis complete", "success");
-
-    try {
-      await chrome.storage.local.set({ savedAnalysis: analysis });
-    } catch (e) {}
-
-    // 3. If recommendation is "apply", automatically push to Google Sheet
-    const rec = analysis.data?.recommendation || analysis.recommendation;
-    if (rec && rec.toLowerCase() === "apply") {
-      setStatus("📊 Saving to Google Sheet…", "info");
-      await saveJobToSheet({
-        spreadsheetId: "1P7HNnwh7QOCZK0W4-CCTIbfIhaeCiAcazHJsShe0TC4",
-        title: job.title,
-        company: job.company,
-        link: job.link,
-        description: job.description,
-        applyUrl: job.applyUrl || job.link || "",
-        platform: job.platform || "Generic",
-        onsite: job.workModel || "",
-        salary: job.salary || "",
-        location: job.location || ""
-      });
-      setStatus("✅ Job saved to Google Sheet!", "success");
-    } else {
-      console.log("[Popup] ℹ️ Recommendation is not 'apply', skipping sheet save");
-    }
-  } catch (err) {
-    setStatus(`❌ Analysis error: ${err instanceof Error ? err.message : "Failed"}`, "error");
-    console.error("[Popup] ❌ Analysis error:", err);
-  } finally {
-    analyzeBtn.disabled = false;
-  }
-}
-
-// ── Helper: save job to Google Sheet ─────────────────────────────
-async function saveJobToSheet(jobData: {
-  spreadsheetId?: string;
-  title: string | null;
-  company: string | null;
-  link: string;
-  description: string | null;
-  applyUrl: string;
-  platform: string;
-  onsite: string;
-  salary?: string;
-  location?: string;
-}): Promise<void> {
-  try {
-    console.log("[Popup] 📤 Saving to sheet:", jobData);
-    await fetch(SHEET_WEB_APP_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(jobData),
-    });
-    console.log("[Popup] ✅ Sheet save request sent");
-  } catch (err) {
-    console.error("[Popup] ❌ Sheet save error:", err);
-    throw err;
-  }
-}
-
 // ── Copy / Export ───────────────────────────────────────────────
 function copyJSON(): void {
   if (!extractedJobs.length) { 
-    setStatus("❌ Extract jobs first!", "error"); 
+    setStatus("❌ Extract a job first!", "error"); 
     return; 
   }
   
   const simplified = extractedJobs.map(job => ({
     "role name": job.title,
     company: job.company,
-    "job url": job.applyUrl || job.link,
+    "job url": job.link,
+    "direct apply url": job.applyUrl || job.link,
     platform: job.platform || "Generic",
     salary: job.salary || null,
     location: job.location || null,
@@ -418,30 +318,30 @@ function copyJSON(): void {
     : JSON.stringify(simplified, null, 2);
   
   navigator.clipboard.writeText(textToCopy)
-    .then(() => setStatus("✅ JSON copied!", "success"))
+    .then(() => setStatus("✅ Copied to clipboard!", "success"))
     .catch(err => {
-      console.error("[Popup] ❌ Copy error:", err);
+      console.error("[ApplyFlow Popup] ❌ Copy error:", err);
       setStatus("❌ Failed to copy", "error");
     });
 }
 
 function exportCSV(): void {
   if (!extractedJobs.length) { 
-    setStatus("❌ Extract jobs first!", "error"); 
+    setStatus("❌ Extract a job first!", "error"); 
     return; 
   }
   
-  const header = ["Title", "Company", "Link", "Description", "Apply URL", "Platform", "Salary", "Location", "Work Model", "Source"];
+  const header = ["Title", "Company", "Link", "Apply URL", "Platform", "Salary", "Location", "Work Model", "Description", "Source"];
   const rows = extractedJobs.map(j => [
     `"${(j.title || "").replace(/"/g, '""')}"`,
     `"${(j.company || "").replace(/"/g, '""')}"`,
     `"${j.link.replace(/"/g, '""')}"`,
-    `"${(j.description || "").replace(/"/g, '""').replace(/\n/g, " ")}"`,
     `"${(j.applyUrl || "").replace(/"/g, '""')}"`,
     `"${j.platform || "Generic"}"`,
     `"${j.salary || ""}"`,
     `"${j.location || ""}"`,
     `"${j.workModel || ""}"`,
+    `"${(j.description || "").replace(/"/g, '""').replace(/\n/g, " ")}"`,
     `"${j.source || ""}"`
   ]);
   
@@ -449,7 +349,7 @@ function exportCSV(): void {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `job_details_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `applyflow_jobs_${new Date().toISOString().slice(0,10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -459,49 +359,36 @@ function exportCSV(): void {
 
 function clearDetails(): void {
   extractedJobs = [];
-  getEl("results").innerHTML = "";
-  getEl("analysis").innerHTML = "";
-  getEl<HTMLButtonElement>("analyzeBtn").style.display = "none";
+  renderResults([]);
   const debugBtn = document.getElementById("debugBtn");
   if (debugBtn) debugBtn.style.display = "none";
-  chrome.storage.local.remove(["savedJobs", "savedUrl", "savedAnalysis"]);
-  setStatus("Details cleared. Click Extract to read the job.", "info");
+  chrome.storage.local.remove(["savedJobs", "savedUrl"]);
+  setStatus("Ready to capture job details.", "info");
 }
 
 async function restoreSavedDetails(): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get(["savedJobs", "savedUrl", "savedAnalysis"]);
+    const stored = await chrome.storage.local.get(["savedJobs", "savedUrl"]);
     if (stored.savedJobs && Array.isArray(stored.savedJobs) && stored.savedJobs.length > 0) {
-      console.log("[Popup] 🔄 Restoring retained job details from storage:", stored.savedJobs);
+      console.log("[ApplyFlow Popup] 🔄 Restoring retained job details:", stored.savedJobs);
       extractedJobs = stored.savedJobs;
       renderResults(extractedJobs);
-      setStatus(`✅ Retained job details (${extractedJobs[0].title || "Job"})`, "success");
-      getEl<HTMLButtonElement>("analyzeBtn").style.display = "inline-block";
+      setStatus(`✅ Retained: ${extractedJobs[0].title || "Job"} (${extractedJobs[0].company || ""})`, "success");
       const debugBtn = document.getElementById("debugBtn");
       if (debugBtn) debugBtn.style.display = "inline-block";
-
-      if (stored.savedAnalysis) {
-        getEl("analysis").innerHTML = `
-          <div class="analysis-card">
-            <h3>📊 AI Analysis</h3>
-            <pre>${esc(JSON.stringify(stored.savedAnalysis, null, 2))}</pre>
-          </div>`;
-      }
     }
   } catch (err) {
-    console.warn("[Popup] Could not restore saved details:", err);
+    console.warn("[ApplyFlow Popup] Could not restore saved details:", err);
   }
 }
 
 // ── Init ────────────────────────────────────────────────────────
 (async () => {
-  console.log("[Popup] 🚀 Popup initialized");
+  console.log("[ApplyFlow Popup] 🚀 Initialized");
   const tab = await getCurrentTab();
-  console.log("[Popup] Current tab:", tab.url);
+  console.log("[ApplyFlow Popup] Current tab:", tab.url);
   
   const platformInfo = getPlatformInfo(tab.url);
-  console.log("[Popup] Platform Info:", platformInfo);
-  
   renderControls(platformInfo);
   await restoreSavedDetails();
 })();

@@ -3,7 +3,8 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
 
-  name: "Job Analyzer",
+  name: "ApplyFlow Job Extractor",
+  description: "Instantly capture and structure job postings across LinkedIn, HiringCafe, ZipRecruiter, and JobRight for ApplyFlow.",
 
   version: "1.0.0",
 

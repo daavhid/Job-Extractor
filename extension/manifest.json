@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "LinkedIn Job Extractor",
+  "name": "ApplyFlow Job Extractor",
   "version": "1.0.0",
-  "description": "Extract job title, company, link, and description from LinkedIn job pages.",
+  "description": "Instantly capture and structure job postings across LinkedIn, HiringCafe, ZipRecruiter, and JobRight for ApplyFlow.",
   "permissions": ["activeTab", "scripting", "clipboardWrite"],
   "host_permissions": ["https://www.linkedin.com/*"],
   "action": {

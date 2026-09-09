@@ -1,4 +1,4 @@
-# Job Extractor Chrome Extension
+# ApplyFlow Job Extractor
 
 An automated Chrome Extension (Manifest V3) designed to extract clean, structured job postings (title, company, description, direct ATS apply URL, salary, location, work model) across major job boards including:
 - **LinkedIn**
@@ -13,12 +13,12 @@ An automated Chrome Extension (Manifest V3) designed to extract clean, structure
 
 If you just want to run the extension without building from source:
 
-1. Download or extract `job-extractor-dist.zip` (or `extension/dist.zip`) to any folder on your computer (e.g., `job-extractor-dist/`).
+1. Download or extract `job-extractor-dist.zip` (or `extension/dist.zip`) to any folder on your computer (e.g., `applyflow-job-extractor/`).
 2. Open Google Chrome and navigate to `chrome://extensions`.
 3. In the top-right corner, toggle **Developer mode** on.
 4. Click the **Load unpacked** button in the top-left corner.
 5. Select the unzipped folder containing `manifest.json`.
-6. That's it! The **Job Analyzer / Extractor** extension is now installed and ready to use.
+6. That's it! The **ApplyFlow Job Extractor** extension is now installed and ready to use.
 
 ---
 

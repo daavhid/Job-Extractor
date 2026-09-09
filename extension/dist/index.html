@@ -4,240 +4,418 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Job Analyzer</title>
+  <title>ApplyFlow Job Extractor</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 400px;
-      min-height: 200px;
-      background: #0a0a0f;
-      color: #e8e6f0;
-      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-      font-size: 13px;
+      width: 370px;
+      min-height: 180px;
+      background: #08080f;
+      color: #f1f0fb;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11.5px;
+      line-height: 1.35;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
+    /* ── ApplyFlow Brand Header ── */
     .header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 16px 16px 14px;
-      border-bottom: 1px solid #1e1e2e;
-      background: linear-gradient(135deg, #0d0d1c 0%, #0a0a0f 100%);
+      justify-content: space-between;
+      padding: 9px 12px;
+      background: linear-gradient(180deg, #121124 0%, #0a0a14 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .logo {
-      width: 32px; height: 32px;
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; color: #fff;
-      flex-shrink: 0;
-      box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
-    }
-    .header-text h1 { font-size: 15px; font-weight: 700; color: #f0eeff; letter-spacing: 0.3px; }
-    .header-text p  { font-size: 11px; color: #7c7b96; margin-top: 2px; }
-
-    .platform-container {
+      width: 25px;
+      height: 25px;
+      background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+      border-radius: 7px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      padding: 10px 16px;
-      background: #11111f;
-      border-bottom: 1px solid #1e1e2e;
+      justify-content: center;
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 0 12px rgba(79, 70, 229, 0.5);
     }
-    .platform-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: #7c7b96;
+    .logo svg {
+      width: 14px;
+      height: 14px;
     }
-    .platform-badge {
-      font-size: 10px;
+    .header-text h1 {
+      font-size: 12.5px;
       font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: #ffffff;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      line-height: 1.2;
     }
-    .badge-supported {
+    .header-text h1 span {
+      background: linear-gradient(135deg, #818cf8 0%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 800;
+    }
+    .header-text p {
+      font-size: 9.5px;
+      color: #94a3b8;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+
+    .platform-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 2.5px 7px;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(255, 255, 255, 0.04);
+      color: #cbd5e1;
+    }
+    .platform-chip .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+    .platform-chip.supported {
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.08);
+      color: #34d399;
+    }
+    .platform-chip.supported .dot {
       background: #10b981;
-      color: #ecfdf5;
-      box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);
-    }
-    .badge-generic {
-      background: #3b3b4f;
-      color: #d1d5db;
+      box-shadow: 0 0 5px rgba(16, 185, 129, 0.7);
     }
 
-    .warning-banner {
-      background: #2d1a1a;
-      color: #f87171;
-      border-bottom: 1px solid #4a2828;
-      padding: 10px 16px;
-      font-size: 11px;
-      line-height: 1.4;
-    }
-
+    /* ── Controls Toolbar ── */
     .controls {
       display: flex;
-      gap: 8px;
-      padding: 14px 16px;
-      border-bottom: 1px solid #1e1e2e;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 10px;
+      background: #08080f;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     }
     button {
-      flex: 1;
-      padding: 8px 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 5px 9px;
+      height: 28px;
       border: none;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 10.5px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s;
+      user-select: none;
+      transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      white-space: nowrap;
     }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #extractBtn {
-      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-      color: #fff;
-      box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+      flex: 1.3;
+      background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
     }
     #extractBtn:hover:not(:disabled) {
-      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-      box-shadow: 0 0 14px rgba(99, 102, 241, 0.35);
+      filter: brightness(1.1);
+      box-shadow: 0 3px 12px rgba(79, 70, 229, 0.5);
+      transform: translateY(-1px);
     }
-    #copyBtn { background: #1e1e2e; color: #a8a5c0; border: 1px solid #2e2e42; }
-    #copyBtn:hover:not(:disabled) { background: #252538; color: #e0ddf5; }
-    #exportBtn { background: #14281a; color: #4ade80; border: 1px solid #223f2d; }
-    #exportBtn:hover:not(:disabled) { background: #1b3523; }
-    #clearBtn { background: #1e1e2e; color: #7c7b96; border: 1px solid #2e2e42; flex: 0 0 32px; font-size: 14px; }
-    #clearBtn:hover:not(:disabled) { background: #252538; color: #f87171; border-color: #4a2828; }
-    #analyzeBtn { background: #d97706; color: #ffffff; margin-top: 10px; width: calc(100% - 32px); margin-left: 16px; margin-right: 16px; box-shadow: 0 0 10px rgba(217, 119, 6, 0.2); }
-    #analyzeBtn:hover:not(:disabled) { background: #b45309; box-shadow: 0 0 14px rgba(217, 119, 6, 0.35); }
-
-    .status {
-      padding: 8px 16px;
+    #copyBtn {
+      flex: 1;
+      background: #131320;
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    #copyBtn:hover:not(:disabled) {
+      background: #1a1a2e;
+      color: #ffffff;
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+    #exportBtn {
+      background: rgba(16, 185, 129, 0.08);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      padding: 5px 8px;
+    }
+    #exportBtn:hover:not(:disabled) {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    #clearBtn {
+      flex: 0 0 24px;
+      height: 28px;
+      width: 24px;
+      padding: 0;
+      background: transparent;
+      color: #64748b;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
       font-size: 11px;
-      min-height: 24px;
     }
-    .status.success { color: #4ade80; }
-    .status.error   { color: #f87171; }
-    .status.info    { color: #60a5fa; }
+    #clearBtn:hover:not(:disabled) {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.3);
+      background: rgba(248, 113, 113, 0.08);
+    }
 
+    /* ── Status Bar ── */
+    .status {
+      padding: 3px 10px;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 20px;
+    }
+    .status.info    { color: #94a3b8; }
+    .status.success { color: #34d399; font-weight: 500; }
+    .status.error   { color: #f87171; }
+
+    /* ── Warning Banner ── */
+    .warning-banner {
+      background: rgba(239, 68, 68, 0.07);
+      color: #fca5a5;
+      border-bottom: 1px solid rgba(239, 68, 68, 0.18);
+      padding: 5px 10px;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    /* ── Results Container ── */
     #results {
-      max-height: 420px;
+      max-height: 380px;
       overflow-y: auto;
-      padding: 0 16px 16px;
+      padding: 2px 10px 10px;
     }
     #results::-webkit-scrollbar { width: 4px; }
-    #results::-webkit-scrollbar-thumb { background: #2e2e42; border-radius: 4px; }
+    #results::-webkit-scrollbar-thumb { background: #222235; border-radius: 4px; }
 
+    /* ── Job Card ── */
     .job-card {
-      background: #111120;
-      border: 1px solid #1e1e2e;
+      background: #0f0f1c;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      padding: 14px;
-      margin-top: 12px;
+      padding: 8px 10px;
+      margin-top: 5px;
       position: relative;
-      transition: border-color 0.2s;
+      transition: border-color 0.15s ease;
     }
-    .job-card:hover { border-color: #2e2e4c; }
+    .job-card:hover { border-color: rgba(99, 102, 241, 0.35); }
 
-    .job-number { position: absolute; top: 10px; right: 10px; font-size: 10px; color: #484869; font-weight: 700; }
-    .job-title  { font-size: 14px; font-weight: 700; color: #c5c2e8; margin-bottom: 4px; padding-right: 24px; line-height: 1.4; }
-    .job-company { font-size: 12px; color: #818cf8; font-weight: 600; margin-bottom: 8px; }
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .job-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f8fafc;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .job-number {
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #818cf8;
+      background: rgba(99, 102, 241, 0.15);
+      padding: 1px 4px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .job-company {
+      font-size: 11px;
+      color: #818cf8;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
 
-    .job-metadata {
+    /* ── Badges / Meta Chips ── */
+    .meta-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px 12px;
-      margin-bottom: 8px;
-      font-size: 11px;
-      border-bottom: 1px dashed #1e1e2e;
-      padding-bottom: 6px;
+      gap: 4px;
+      margin-bottom: 6px;
     }
-    .meta-item {
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 1.5px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .chip-salary {
+      background: rgba(16, 185, 129, 0.08);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+    .chip-location {
+      background: rgba(59, 130, 246, 0.08);
+      color: #60a5fa;
+      border-color: rgba(59, 130, 246, 0.2);
+    }
+    .chip-model {
+      background: rgba(168, 85, 247, 0.08);
+      color: #c084fc;
+      border-color: rgba(168, 85, 247, 0.2);
+    }
+
+    /* ── Links ── */
+    .link-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 5px;
+      padding-top: 5px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 10px;
+    }
+    .link-item {
       display: flex;
       align-items: center;
       gap: 4px;
-      color: #a8a5c0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .meta-item span {
-      color: #6b6980;
+    .link-item strong {
+      color: #94a3b8;
+      font-weight: 500;
+      flex-shrink: 0;
     }
-    .model-tag {
-      font-size: 9px;
-      font-weight: 800;
-      padding: 1px 5px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
+    .link-item a {
+      color: #38bdf8;
+      text-decoration: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .model-remote {
-      background: rgba(16, 185, 129, 0.12);
+    .link-item.apply-link a {
       color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.3);
+      font-weight: 500;
     }
-    .model-hybrid {
-      background: rgba(99, 102, 241, 0.12);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
+    .link-item a:hover {
+      text-decoration: underline;
     }
-    .model-onsite {
-      background: rgba(245, 158, 11, 0.12);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.3);
+
+    /* ── Description Accordion ── */
+    .desc-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: #94a3b8;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s ease;
     }
-    .job-link a { font-size: 11px; color: #60a5fa; text-decoration: none; word-break: break-all; }
-    .job-link a:hover { color: #93c5fd; text-decoration: underline; }
-
-    .job-apply-url { margin-top: 4px; }
-    .job-apply-url a { font-size: 11px; color: #34d399; text-decoration: none; word-break: break-all; }
-    .job-apply-url a:hover { color: #6ee7b7; text-decoration: underline; }
-
-    .job-source { font-size: 10px; color: #6b6980; margin-top: 8px; border-top: 1px solid #191928; padding-top: 6px; }
-
-    .desc-toggle { display: inline-block; margin-top: 10px; font-size: 11px; color: #7c7b96; cursor: pointer; user-select: none; font-weight: 500; }
-    .desc-toggle:hover { color: #a8a5c0; }
-    .desc-toggle.no-desc { cursor: default; color: #2e2e42; }
-    .desc-toggle.no-desc:hover { color: #2e2e42; }
+    .desc-toggle:hover { color: #cbd5e1; }
+    .desc-toggle.no-desc { cursor: default; color: #475569; }
 
     .job-description {
       display: none;
-      margin-top: 8px;
-      font-size: 11px;
-      color: #9ca3af;
-      line-height: 1.6;
-      max-height: 160px;
+      margin-top: 5px;
+      font-size: 10px;
+      color: #cbd5e1;
+      line-height: 1.45;
+      max-height: 120px;
       overflow-y: auto;
-      background: #08080d;
-      border: 1px solid #141420;
-      border-radius: 4px;
-      padding: 10px;
+      background: #07070d;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      padding: 6px 8px;
+      white-space: pre-line;
     }
     .job-description.open { display: block; }
+    .job-description::-webkit-scrollbar { width: 3px; }
+    .job-description::-webkit-scrollbar-thumb { background: #222235; border-radius: 3px; }
 
-    .analysis-container {
-      padding: 0 16px 16px;
+    .job-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 9px;
+      color: #64748b;
     }
-    .analysis-card {
-      background: #1e1b4b;
-      border: 1px solid #312e81;
+
+    /* ── Empty State ── */
+    .empty-state {
+      padding: 24px 16px;
+      text-align: center;
+      border: 1px dashed rgba(255, 255, 255, 0.1);
       border-radius: 8px;
-      padding: 12px;
-      margin-top: 12px;
+      margin-top: 6px;
+      background: rgba(255, 255, 255, 0.015);
     }
-    .analysis-card h3 { font-size: 12px; font-weight: 700; color: #c084fc; margin-bottom: 6px; }
-    .analysis-card pre { font-family: monospace; font-size: 10px; color: #e9d5ff; white-space: pre-wrap; overflow-x: auto; }
+    .empty-icon {
+      font-size: 20px;
+      margin-bottom: 6px;
+      opacity: 0.8;
+    }
+    .empty-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f1f0fb;
+      margin-bottom: 4px;
+    }
+    .empty-subtitle {
+      font-size: 10px;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .empty-subtitle strong {
+      color: #818cf8;
+    }
   </style>
   <script type="module" crossorigin src="./assets/mainWorldHelper-C5gwek9s.js"></script>
-  <script type="module" crossorigin src="./assets/popup-Dsgxigfk.js"></script>
+  <script type="module" crossorigin src="./assets/popup-CDKQ8Quw.js"></script>
 </head>
 
 <body>
   <div class="header">
-    <div class="logo">💼</div>
-    <div class="header-text">
-      <h1>Job Analyzer</h1>
-      <p>Extract job details from any supported page</p>
+    <div class="brand-wrap">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+        </svg>
+      </div>
+      <div class="header-text">
+        <h1>ApplyFlow <span>Job Extractor</span></h1>
+        <p>Precision Capture & Auto-Fill</p>
+      </div>
+    </div>
+    <div id="platformHeaderBadge" class="platform-chip">
+      <span class="dot"></span>
+      <span id="platformHeaderName">Checking...</span>
     </div>
   </div>
 
