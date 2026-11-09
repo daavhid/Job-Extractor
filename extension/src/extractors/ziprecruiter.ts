@@ -13,108 +13,105 @@ export class ZipRecruiterExtractor extends BaseExtractor {
     
     // 1. Locate active details pane
     const detailsPane = this.findActiveDetailsPane();
+    const isSearchPage = window.location.pathname.includes("/jobs-search") || window.location.pathname.includes("/search");
 
-    const jobPermalink = mainData?.directLink || window.location.href;
+    // 2. Extract description from active details pane
+    const description = this.extractDescriptionFromDOM(detailsPane) || this.extractDescriptionFromDOM(document);
 
-    // 2. Try React Fiber inspection on active details pane or document
+    // 3. Extract exact job title from active details pane
+    const domTitle = this.extractJobTitle(detailsPane, description);
+
+    // 4. Try React Fiber inspection on active details pane
     const fiberJob = this.extractFromReactFiber(detailsPane instanceof Element ? detailsPane : document.body) ||
-                     this.extractFromReactFiber(document.querySelector('[class*="jobDetails" i], [class*="job_details" i], article, section, [role="main"]'));
-    if (fiberJob && fiberJob.title && (fiberJob.company || fiberJob.applyUrl || fiberJob.description)) {
-      const fTitle = String(fiberJob.title).toLowerCase().trim();
-      const isRelevant = !document.title || document.title.toLowerCase().includes(fTitle) || (fiberJob.description && fiberJob.description.toLowerCase().includes(fTitle));
-      if (isRelevant) {
-        console.log("[ZipRecruiter Extractor] ✅ Extracted job via React Fiber:", fiberJob);
-        const fiberTitle = this.cleanStr(fiberJob.title);
-        let finalTitle = fiberTitle;
-        if (document.title) {
-          const jobInMatch = document.title.match(/^(.*?)\s+(?:jobs?\s+in\b|at\s+ZipRecruiter\b|\|\s*Ziprecruiter\b)/i);
-          let rawDocTitle = jobInMatch ? jobInMatch[1].trim() : document.title.split(/[|·]/)[0].trim();
-          rawDocTitle = rawDocTitle.replace(/\s+at\s+ZipRecruiter.*$/i, "")
-                                   .replace(/\s+-\s+ZipRecruiter.*$/i, "")
-                                   .replace(/\s*\|\s*ZipRecruiter.*$/i, "")
-                                   .trim();
-          if (rawDocTitle && rawDocTitle.length > (fiberTitle?.length || 0) && !/^ziprecruiter$/i.test(rawDocTitle)) {
-            finalTitle = rawDocTitle;
-          }
-        }
+                     (detailsPane !== document ? this.extractFromReactFiber(document.querySelector('[class*="jobDetails" i], [class*="job_details" i], article, section, [role="main"]')) : null);
 
-        const directApply = this.cleanDirectUrl(mainData?.applyUrl || fiberJob.applyUrl || this.findDirectApplyUrl(detailsPane) || this.findDirectApplyUrl(document));
-        const desc = this.cleanStr(fiberJob.description) || this.extractDescriptionFromDOM(detailsPane) || this.extractDescriptionFromDOM(document);
-
-        let comp: string | null = null;
-        const coLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/co/"]'));
-        for (const cl of coLinks) {
-          const text = this.cleanCompanyName(cl.textContent);
-          if (text && this.isValidCompanyName(text, finalTitle)) {
-            comp = text;
-            break;
-          }
-          if (cl.href) {
-            const fromHref = this.extractFromCompanyHref(cl.href, finalTitle);
-            if (fromHref && this.isValidCompanyName(fromHref, finalTitle)) {
-              comp = fromHref;
-              break;
-            }
-          }
-        }
-
-        if (!comp) {
-          comp = this.findCompanyName(detailsPane, finalTitle, desc) || 
-                 this.findCompanyName(document, finalTitle, desc) || 
-                 this.cleanStr(fiberJob.company) || 
-                 (desc ? this.extractCompanyFromDescription(desc) : null);
-        }
-
-        const loc = (desc ? this.extractLocationFromText(desc) : null) || 
-                    fiberJob.location || 
-                    this.extractLocationFromDOM(detailsPane) || 
-                    this.extractLocationFromDOM(document);
-
-        return [{
-          title: finalTitle,
-          company: comp,
-          link: jobPermalink,
-          description: desc,
-          applyUrl: directApply || jobPermalink,
-          source: "detail-page",
-          platform: "ZipRecruiter",
-          salary: fiberJob.salary || this.extractSalaryFromDOM(detailsPane) || this.extractSalaryFromDOM(document),
-          location: loc,
-          workModel: fiberJob.workModel || this.extractWorkModelFromText(desc) || this.extractWorkModelFromText(loc)
-        }];
+    let finalTitle = domTitle;
+    if (!finalTitle && fiberJob?.title) {
+      const fTitle = this.cleanStr(fiberJob.title);
+      if (fTitle && !this.isExcludedHeading(fTitle)) {
+        finalTitle = this.cleanJobTitle(fTitle);
       }
     }
 
-    // 3. Try JSON-LD
-    const jsonLdJobs = this.extractFromJSONLD("ZipRecruiter");
-    
-    // 4. Perform DOM extraction
-    const detailJob = await this.extractFromDOM(detailsPane, mainData);
-    
-    if (detailJob) {
-      if (jsonLdJobs.length > 0) {
-        const existing = jsonLdJobs[0];
-        if (!existing.company && detailJob.company) existing.company = detailJob.company;
-        if (!existing.applyUrl && detailJob.applyUrl) existing.applyUrl = detailJob.applyUrl;
-        if (!existing.title && detailJob.title) existing.title = detailJob.title;
-        if (!existing.location && detailJob.location) existing.location = detailJob.location;
-        if (!existing.salary && detailJob.salary) existing.salary = detailJob.salary;
-        if (!existing.workModel && detailJob.workModel) existing.workModel = detailJob.workModel;
+    // 5. Try JSON-LD ONLY on single-job pages (never on search pages with split views)
+    if (!isSearchPage && !finalTitle) {
+      const jsonLdJobs = this.extractFromJSONLD("ZipRecruiter");
+      if (jsonLdJobs.length > 0 && jsonLdJobs[0].title) {
         return jsonLdJobs;
       }
+    }
+
+    // 6. Perform comprehensive DOM extraction on details pane
+    const detailJob = await this.extractFromDOM(detailsPane, mainData, description, finalTitle, fiberJob);
+    if (detailJob) {
       return [detailJob];
     }
-    
-    return jsonLdJobs;
+
+    return [];
   }
 
+  /**
+   * Locates the active job details pane.
+   * On ZipRecruiter search pages with split view, the right column is the details pane,
+   * containing the active Apply button, job title H1, company link, and job description.
+   */
   private findActiveDetailsPane(): ParentNode {
+    // 1. Highest priority: Trace up from the active Apply button in the details pane
+    const applyButtons = Array.from(document.querySelectorAll<HTMLElement>(
+      '[data-testid="apply-now-button"], [data-testid="sticky-apply-button"], [data-testid*="apply-button" i], a[href*="job-redirect"]'
+    ));
+
+    for (const btn of applyButtons) {
+      let curr: HTMLElement | null = btn.parentElement;
+      let hops = 0;
+      while (curr && curr !== document.body && hops < 10) {
+        const hasTitle = !!curr.querySelector('h1, [data-testid*="title" i], [class*="jobTitle" i]');
+        const textLen = (curr.textContent || '').trim().length;
+        const isSearchList = curr.querySelectorAll('a[href*="job-redirect"]').length > 3 || 
+                             curr.querySelectorAll('a[href*="/co/"]').length > 3;
+
+        if (hasTitle && textLen > 200 && !isSearchList) {
+          console.log("[ZipRecruiter Extractor] 🎯 Located active details pane via Apply button:", curr);
+          return curr;
+        }
+        curr = curr.parentElement;
+        hops++;
+      }
+    }
+
+    // 2. Locate container via "Job description" section heading
+    const allHeadings = Array.from(document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, div, span, p'));
+    const jobDescHeader = allHeadings.find(el => {
+      const t = (el.textContent || '').trim().toLowerCase();
+      return t === 'job description' || t === 'about the role' || t === 'job summary';
+    });
+
+    if (jobDescHeader) {
+      let curr: HTMLElement | null = jobDescHeader.parentElement;
+      let hops = 0;
+      while (curr && curr !== document.body && hops < 8) {
+        const hasTitle = !!curr.querySelector('h1, [data-testid*="title" i], [class*="jobTitle" i]');
+        const textLen = (curr.textContent || '').trim().length;
+        const isSearchList = curr.querySelectorAll('a[href*="job-redirect"]').length > 3;
+
+        if (hasTitle && textLen > 200 && !isSearchList) {
+          console.log("[ZipRecruiter Extractor] 🎯 Located active details pane via Job Description header:", curr);
+          return curr;
+        }
+        curr = curr.parentElement;
+        hops++;
+      }
+    }
+
+    // 3. Known ZipRecruiter container selectors
     const paneSelectors = [
+      '[data-testid="job-details-pane"]',
+      '[data-testid*="job-details" i]',
+      '[data-testid="job_details"]',
       '[class*="job_details" i]',
       '[class*="jobDetails" i]',
       '[class*="details_pane" i]',
       '[class*="detailsPane" i]',
-      '[data-testid*="job-details" i]',
       '#job-details',
       '.job-details',
       '.details-panel',
@@ -123,34 +120,279 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       'section',
       '[role="main"]'
     ];
+
     for (const sel of paneSelectors) {
-      const els = document.querySelectorAll(sel);
-      for (const el of Array.from(els)) {
-        if (el.querySelector('.jobdescription, .jobDescriptionText, .job_description, .job-description, .jobDescriptionSection, [class*="jobDescription" i]')) {
+      const els = Array.from(document.querySelectorAll<HTMLElement>(sel));
+      for (const el of els) {
+        const textLen = (el.textContent || '').trim().length;
+        const hasTitle = !!el.querySelector('h1, h2');
+        const isSearchList = el.querySelectorAll('a[href*="job-redirect"]').length > 3;
+        if (hasTitle && textLen > 200 && !isSearchList) {
           return el;
         }
       }
     }
+
     return document;
   }
 
-  private async extractFromDOM(detailsPane: ParentNode, mainWorldData?: any): Promise<JobResult | null> {
-    const description = this.extractDescriptionFromDOM(detailsPane) || this.extractDescriptionFromDOM(document);
+  /**
+   * Filters out search result headings, counts, boilerplate text, and navigation labels
+   * that must never be mistaken for a job title.
+   */
+  private isExcludedHeading(t: string): boolean {
+    const low = t.toLowerCase().trim();
+    return !low || 
+           low === "ziprecruiter" || 
+           low === "job description" || 
+           low === "similar jobs" || 
+           low === "job details" || 
+           low === "about the company" ||
+           low.startsWith("search ") ||
+           low.startsWith("sign in") ||
+           low.startsWith("create alert") ||
+           /^\d+\+?\s+.*jobs?\b/i.test(low) || // e.g. "38 C#/.net jobs in United States"
+           /\bjobs?\s+in\b/i.test(low) ||
+           /\b\d+\s+best\b/i.test(low) ||
+           /\bnow hiring\b/i.test(low) ||
+           /\bjob search\b/i.test(low);
+  }
 
+  /**
+   * Strips trailing badges (Remote, Hybrid, On-site, etc.), "Position- " prefixes,
+   * and residual punctuation from raw title strings.
+   */
+  private cleanJobTitle(raw: string): string {
+    let t = raw.replace(/\s+/g, " ").trim();
+    // Strip trailing badges / pills
+    t = t.replace(/\s+(?:Remote|Hybrid|On-site|Onsite|Full[- ]time|Part[- ]time|Contract|New|Urgent|Easy Apply)\s*$/i, "").trim();
+    // Strip leading "Position- " or "Role: "
+    t = t.replace(/^(?:Position|Role|Job Title)\s*[-:]\s*/i, "").trim();
+    // Strip leading/trailing punctuation
+    t = t.replace(/^[-–—:\s]+|[-–—:\s]+$/g, "").trim();
+    return t;
+  }
+
+  /**
+   * Extracts clean job title from a heading element by stripping child badge/pill elements
+   * before extracting text content.
+   */
+  private cleanTitleFromHeading(el: HTMLElement): string | null {
+    const clone = el.cloneNode(true) as HTMLElement;
+    // Remove badge / tag elements inside the heading
+    const badges = clone.querySelectorAll(
+      '[class*="badge" i], [class*="pill" i], [class*="tag" i], [class*="chip" i], [class*="label" i], [aria-label*="remote" i], [data-testid*="badge" i]'
+    );
+    badges.forEach(b => b.remove());
+    Array.from(clone.children).forEach(child => {
+      const txt = (child.textContent || "").trim().toLowerCase();
+      if (['remote', 'hybrid', 'on-site', 'onsite', 'full-time', 'part-time', 'contract', 'new', 'urgent', 'easy apply'].includes(txt)) {
+        child.remove();
+      }
+    });
+
+    const text = clone.textContent?.replace(/\s+/g, " ").trim();
+    if (!text || this.isExcludedHeading(text)) return null;
+
+    const cleaned = this.cleanJobTitle(text);
+    return cleaned.length > 2 && !this.isExcludedHeading(cleaned) ? cleaned : null;
+  }
+
+  /**
+   * Extracts the exact job title for the currently selected job.
+   * Priority:
+   * 1. H1 / title elements inside active details pane
+   * 2. Non-excluded H2 in details pane
+   * 3. Selected card in search results list
+   * 4. Matching card by URL hash job_id
+   * 5. NLP from description first lines ("Position- Solution Architect")
+   * 6. NLP role match in description ("seeking a Solutions Architect")
+   * 7. Document title (ONLY on single job pages, NEVER on search pages)
+   */
+  private extractJobTitle(detailsPane: ParentNode, description: string | null): string | null {
+    // 1. Primary: Heading in detailsPane (h1 is the standard for active job details pane)
+    const h1Candidates = Array.from(detailsPane.querySelectorAll<HTMLElement>(
+      'h1, [data-testid="job-title"], [data-testid="job-details-title"], [data-testid*="jobTitle" i], [class*="jobTitle" i], [class*="job-title" i], [class*="job_title" i]'
+    ));
+    for (const el of h1Candidates) {
+      const t = this.cleanTitleFromHeading(el);
+      if (t) {
+        console.log("[ZipRecruiter Extractor] ✅ Job title found via details pane H1:", t);
+        return t;
+      }
+    }
+
+    // 2. Secondary: Any h2 in detailsPane that is not an excluded section header
+    const h2Candidates = Array.from(detailsPane.querySelectorAll<HTMLElement>('h2'));
+    for (const el of h2Candidates) {
+      const t = this.cleanTitleFromHeading(el);
+      if (t) {
+        console.log("[ZipRecruiter Extractor] ✅ Job title found via details pane H2:", t);
+        return t;
+      }
+    }
+
+    // 3. Selected job card in the search results list (split view)
+    const selectedCards = Array.from(document.querySelectorAll<HTMLElement>(
+      '[class*="selected" i], [class*="active" i], [aria-selected="true"], [data-selected="true"], [data-active="true"]'
+    ));
+    for (const card of selectedCards) {
+      const cardTitleEl = card.querySelector<HTMLElement>('h1, h2, h3, [class*="title" i], a[href*="/job/"]');
+      if (cardTitleEl) {
+        const t = this.cleanTitleFromHeading(cardTitleEl);
+        if (t) {
+          console.log("[ZipRecruiter Extractor] ✅ Job title found via selected list card:", t);
+          return t;
+        }
+      }
+    }
+
+    // 4. Job ID match from URL hash or query in job cards
+    const hashMatch = window.location.hash.match(/job_id=([a-zA-Z0-9_-]+)/i) || 
+                      window.location.search.match(/job_id=([a-zA-Z0-9_-]+)/i);
+    if (hashMatch && hashMatch[1]) {
+      const jid = hashMatch[1];
+      const matchingCard = document.querySelector<HTMLElement>(`[id*="${jid}"], [data-job-id*="${jid}"], a[href*="${jid}"]`);
+      if (matchingCard) {
+        const cardParent = matchingCard.closest('article, li, [class*="card" i]') || matchingCard;
+        const titleEl = cardParent.querySelector<HTMLElement>('h1, h2, h3, [class*="title" i]') || matchingCard;
+        const t = this.cleanTitleFromHeading(titleEl);
+        if (t) {
+          console.log("[ZipRecruiter Extractor] ✅ Job title found via URL hash job_id card match:", t);
+          return t;
+        }
+      }
+    }
+
+    // 5. NLP Extraction from first lines of Description (e.g. "Position- Solution Architect")
+    if (description) {
+      const descLines = description.split(/[\r\n]+/).slice(0, 5);
+      for (const line of descLines) {
+        const match = line.match(/^(?:Position|Role|Job\s*Title|Title)\s*[-:]\s*([A-Za-z0-9\s/&–-]+)$/i);
+        if (match && match[1]) {
+          const t = this.cleanJobTitle(match[1]);
+          if (t && t.length > 2 && t.length < 80 && !this.isExcludedHeading(t)) {
+            console.log("[ZipRecruiter Extractor] ✅ Job title found via description first line:", t);
+            return t;
+          }
+        }
+      }
+    }
+
+    // 6. Generic NLP match in description ("seeking a Solutions Architect")
+    if (description) {
+      const descRoleMatch = description.match(/(?:seeking|looking for|hiring)\s+(?:a|an)?\s*([A-Z][A-Za-z0-9\s/&–-]{3,50}?(?:Engineer|Developer|Manager|Analyst|Lead|Director|Specialist|Architect|Consultant|Scientist|Associate|Designer|Coordinator|Officer|Executive|Technician))/i);
+      if (descRoleMatch && descRoleMatch[1]) {
+        const t = this.cleanJobTitle(descRoleMatch[1]);
+        if (t && !this.isExcludedHeading(t)) {
+          console.log("[ZipRecruiter Extractor] ✅ Job title found via description NLP role:", t);
+          return t;
+        }
+      }
+    }
+
+    // 7. Single job page document.title (ONLY IF not a search page)
+    const isSearchPage = window.location.pathname.includes("/jobs-search") || window.location.pathname.includes("/search");
+    if (!isSearchPage && document.title) {
+      const jobInMatch = document.title.match(/^(.*?)\s+(?:job\s+in\b|at\s+ZipRecruiter\b|\|\s*Ziprecruiter\b)/i);
+      let rawTitle = jobInMatch ? jobInMatch[1].trim() : document.title.split(/[|·]/)[0].trim();
+      rawTitle = rawTitle.replace(/\s+at\s+ZipRecruiter.*$/i, "")
+                         .replace(/\s+-\s+ZipRecruiter.*$/i, "")
+                         .replace(/\s*\|\s*ZipRecruiter.*$/i, "")
+                         .trim();
+      if (rawTitle && rawTitle.length > 2 && !this.isExcludedHeading(rawTitle)) {
+        return this.cleanJobTitle(rawTitle);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts location specific to ZipRecruiter's layout:
+   * 1. Subtitle near title heading in details pane (e.g. "Texas City, TX • On-site, Remote")
+   * 2. DOM location selector inside detailsPane
+   * 3. Description NLP ("Location : Remote (United States of America)")
+   * 4. Selected card location in list view
+   */
+  private extractZipRecruiterLocation(detailsPane: ParentNode, description: string | null): string | null {
+    // 1. Search text near the title / header in detailsPane
+    const headerContainer = detailsPane.querySelector('header') || detailsPane;
+    const candidates = Array.from(headerContainer.querySelectorAll<HTMLElement>('p, span, div, li'));
+    for (const el of candidates) {
+      if (el.children.length > 3) continue;
+      const text = el.textContent?.trim();
+      if (!text || text.length < 3 || text.length > 100) continue;
+      if (text.includes("Apply") || text.includes("Posted") || text.includes("Full-time") || text.includes("Contract")) {
+        const parts = text.split(/[•·|]/).map(p => p.trim());
+        for (const p of parts) {
+          const m = p.match(/\b([A-Z][a-zA-Z\s.-]+,\s*[A-Z]{2})\b/);
+          if (m && m[1]) return m[1].trim();
+        }
+        continue;
+      }
+      const match = text.match(/\b([A-Z][a-zA-Z\s.-]+,\s*[A-Z]{2})\b/);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+
+    // 2. Standard extractLocationFromDOM (on detailsPane)
+    const domLoc = this.extractLocationFromDOM(detailsPane);
+    if (domLoc) return domLoc;
+
+    // 3. Search description for Location line (e.g. "Location : Remote (United States of America)")
+    if (description) {
+      const locMatch = description.match(/(?:Location|Job Location|Based in|Work Location)\s*:\s*([^\r\n]+)/i);
+      if (locMatch && locMatch[1]) {
+        let raw = locMatch[1].trim();
+        const parenMatch = raw.match(/\(([^)]+)\)/);
+        if (parenMatch && parenMatch[1] && parenMatch[1].length > 2) {
+          return parenMatch[1].trim();
+        }
+        raw = raw.replace(/\s+(?:or\s+Remote|Remote).*$/i, "").trim();
+        if (raw.length > 2 && raw.length < 60) {
+          return raw;
+        }
+      }
+    }
+
+    // 4. Selected card in search list
+    const selectedCard = document.querySelector<HTMLElement>('[class*="selected" i], [class*="active" i], [aria-selected="true"]');
+    if (selectedCard) {
+      const text = selectedCard.textContent || '';
+      const match = text.match(/\b([A-Z][a-zA-Z\s.-]+,\s*[A-Z]{2})\b/);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+
+    return null;
+  }
+
+  private async extractFromDOM(
+    detailsPane: ParentNode,
+    mainWorldData?: any,
+    initialDesc?: string | null,
+    initialTitle?: string | null,
+    fiberJob?: any
+  ): Promise<JobResult | null> {
+    const isSearchPage = window.location.pathname.includes("/jobs-search") || window.location.pathname.includes("/search");
+    const description = initialDesc || this.extractDescriptionFromDOM(detailsPane) || this.extractDescriptionFromDOM(document);
     const jobPermalink = mainWorldData?.directLink || window.location.href;
 
     // Direct ATS / company Apply URL
     let directApplyUrl = (mainWorldData?.applyUrl ? this.cleanDirectUrl(mainWorldData.applyUrl) : null) || 
-                         this.findDirectApplyUrl(detailsPane) || 
-                         this.findDirectApplyUrl(document);
+                         this.findDirectApplyUrl(detailsPane);
+
     if (directApplyUrl) {
       directApplyUrl = this.cleanDirectUrl(directApplyUrl);
     }
 
-    // 1. Check for anchor tags explicitly pointing to job-redirect
+    // 1. Inspect Apply buttons inside detailsPane
     if (!directApplyUrl || directApplyUrl.includes("ziprecruiter.com")) {
-      const redirectLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="job-redirect"]'));
-      for (const rl of redirectLinks) {
+      const paneApplyLinks = Array.from(detailsPane.querySelectorAll<HTMLAnchorElement>('a[data-testid*="apply" i], a[href*="job-redirect"]'));
+      for (const rl of paneApplyLinks) {
         if (rl.href) {
           const unwrapped = this.cleanDirectUrl(rl.href);
           if (unwrapped && !unwrapped.includes("ziprecruiter.com") && !this.isRootHomepage(unwrapped)) {
@@ -161,10 +403,11 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       }
     }
 
-    // 2. Scan page HTML for embedded Base64 ATS URL (e.g. Workday/Greenhouse apply link in match_token hydration)
+    // 2. Scan detailsPane HTML for embedded Base64 ATS URL (strictly within detailsPane to avoid cross-contamination!)
     if (!directApplyUrl || directApplyUrl.includes("ziprecruiter.com")) {
       try {
-        const b64Matches = document.documentElement.innerHTML.match(/aHR0cHM6Ly9[A-Za-z0-9+/=%_-]+/g);
+        const targetHtml = detailsPane instanceof HTMLElement ? detailsPane.innerHTML : "";
+        const b64Matches = targetHtml.match(/aHR0cHM6Ly9[A-Za-z0-9+/=%_-]+/g);
         if (b64Matches) {
           for (const raw of b64Matches) {
             try {
@@ -184,99 +427,23 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       } catch {}
     }
 
-    // 3. Reject any internal ziprecruiter URL (like /jobs-search)
+    // 3. Fallback to fiberJob applyUrl
+    if ((!directApplyUrl || directApplyUrl.includes("ziprecruiter.com")) && fiberJob?.applyUrl) {
+      const fApply = this.cleanDirectUrl(fiberJob.applyUrl);
+      if (fApply && !fApply.includes("ziprecruiter.com") && !this.isRootHomepage(fApply)) {
+        directApplyUrl = fApply;
+      }
+    }
+
+    // If still an internal ziprecruiter URL, reject unless it is a valid job-redirect specifically from detailsPane
     if (directApplyUrl && directApplyUrl.includes("ziprecruiter.com") && !directApplyUrl.includes("job-redirect")) {
       directApplyUrl = null;
     }
 
     // Title Extraction
-    // 1. Extract job title from document.title (extremely reliable on ZipRecruiter: "<Title> job in, <Location> at ZipRecruiter | Ziprecruiter")
-    let titleFromDoc: string | null = null;
-    if (document.title) {
-      const jobInMatch = document.title.match(/^(.*?)\s+(?:jobs?\s+in\b|at\s+ZipRecruiter\b|\|\s*Ziprecruiter\b)/i);
-      let rawTitle = jobInMatch ? jobInMatch[1].trim() : document.title.split(/[|·]/)[0].trim();
-      rawTitle = rawTitle.replace(/\s+at\s+ZipRecruiter.*$/i, "")
-                         .replace(/\s+-\s+ZipRecruiter.*$/i, "")
-                         .replace(/\s*\|\s*ZipRecruiter.*$/i, "")
-                         .trim();
-      if (rawTitle && rawTitle.length > 2 && !/^ziprecruiter$/i.test(rawTitle)) {
-        titleFromDoc = rawTitle;
-      }
-    }
+    let title = initialTitle || this.extractJobTitle(detailsPane, description);
 
-    const titleSelectors = [
-      '[data-testid="job-title"]',
-      '[data-testid="job-details-title"]',
-      '[data-testid*="jobTitle" i]',
-      '.job_title',
-      'h1.job_title',
-      '[class*="jobTitle" i]',
-      '[class*="job-title" i]',
-      '[class*="job_title" i]',
-      'h1',
-      'h2'
-    ];
-
-    const isExcludedHeading = (t: string): boolean => {
-      const low = t.toLowerCase().trim();
-      return !low || 
-             low === "ziprecruiter" || 
-             low === "job description" || 
-             low === "similar jobs" || 
-             low === "job details" || 
-             low === "about the company" ||
-             low.startsWith("search ") ||
-             low.startsWith("sign in") ||
-             low.startsWith("create alert");
-    };
-
-    let title: string | null = null;
-
-    // 2. If titleFromDoc is available, find matching DOM heading to get exact casing & text
-    if (titleFromDoc) {
-      const candidates = Array.from(document.querySelectorAll<HTMLElement>(titleSelectors.join(",")));
-      for (const el of candidates) {
-        const text = this.cleanStr(el.textContent);
-        if (text && !isExcludedHeading(text)) {
-          if (text.toLowerCase() === titleFromDoc.toLowerCase() || 
-              titleFromDoc.toLowerCase().includes(text.toLowerCase()) || 
-              text.toLowerCase().includes(titleFromDoc.toLowerCase())) {
-            title = text;
-            break;
-          }
-        }
-      }
-      if (!title) {
-        title = titleFromDoc;
-      }
-    }
-
-    // 3. If still no title, inspect DOM heading candidates
-    if (!title) {
-      title = this.getBySelectors(titleSelectors, detailsPane) || 
-              (detailsPane !== document ? this.getBySelectors(titleSelectors, document) : null);
-      if (title && isExcludedHeading(title)) {
-        title = null;
-      }
-    }
-
-    // Check mainWorldData title ONLY if consistent with document.title or description
-    if (!title && mainWorldData?.jobData?.title) {
-      const jt = String(mainWorldData.jobData.title).trim();
-      if (document.title.toLowerCase().includes(jt.toLowerCase()) || (description && description.toLowerCase().includes(jt.toLowerCase()))) {
-        title = jt;
-      }
-    }
-
-    // Fallback A: Extract role name from description NLP (e.g. "We're looking for Lead and Staff Software Engineers...")
-    if (!title && description) {
-      const descRoleMatch = description.match(/(?:seeking|looking for|hiring)\s+(?:a|an)?\s*([A-Z][A-Za-z0-9\s/&–-]{3,50}?(?:Engineer|Developer|Manager|Analyst|Lead|Director|Specialist|Architect|Consultant|Scientist|Associate|Designer|Coordinator|Officer|Executive|Technician))/i);
-      if (descRoleMatch && descRoleMatch[1]) {
-        title = descRoleMatch[1].trim();
-      }
-    }
-
-    // Fallback B: Extract title from unwrapped direct ATS apply URL (e.g. Workday slug /job/Staff-Software-Engineer_REQ-4581) as last resort
+    // Fallback title from unwrapped direct ATS apply URL (e.g. Workday slug /job/Staff-Software-Engineer)
     if (!title && directApplyUrl) {
       const slugMatch = directApplyUrl.match(/\/job\/([A-Za-z0-9\-_]+)/i) || 
                          directApplyUrl.match(/\/jobs\/([A-Za-z0-9\-_]+)/i) ||
@@ -293,10 +460,10 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       }
     }
 
-    // Extract company name using multi-tier heuristics
-    // Strategy 1: Dedicated ZipRecruiter company links (/co/<Company-Name>)
+    // Extract company name
+    // Strategy 1: Dedicated ZipRecruiter company links (/co/<Company-Name>) inside detailsPane
     let company: string | null = null;
-    const coLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/co/"]'));
+    const coLinks = Array.from(detailsPane.querySelectorAll<HTMLAnchorElement>('a[href*="/co/"]'));
     for (const cl of coLinks) {
       const text = this.cleanCompanyName(cl.textContent);
       if (text && this.isValidCompanyName(text, title)) {
@@ -312,13 +479,13 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       }
     }
 
-    // Strategy 2: Details pane DOM (with description hint)
+    // Strategy 2: Details pane DOM
     if (!company) {
       company = this.findCompanyName(detailsPane, title, description);
     }
     
-    // Strategy 3: Document DOM (with description hint)
-    if (!company && detailsPane !== document) {
+    // Strategy 3: Document DOM (ONLY if not a search page)
+    if (!company && !isSearchPage && detailsPane !== document) {
       company = this.findCompanyName(document, title, description);
     }
 
@@ -340,15 +507,24 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       } catch {}
     }
 
-    // Strategy 6: mainWorldData ONLY if verified
-    if (!company && mainWorldData?.jobData?.company) {
-      const rawComp = typeof mainWorldData.jobData.company === "object"
-        ? (mainWorldData.jobData.company.name || mainWorldData.jobData.company.canonicalDisplayName || "")
-        : String(mainWorldData.jobData.company);
-      const cleanComp = this.cleanCompanyName(rawComp);
-      if (cleanComp && this.isValidCompanyName(cleanComp, title)) {
-        if (document.title.toLowerCase().includes(cleanComp.toLowerCase()) || (description && description.toLowerCase().includes(cleanComp.toLowerCase()))) {
-          company = cleanComp;
+    // Strategy 6: React Fiber company
+    if (!company && fiberJob?.company) {
+      const fComp = this.cleanCompanyName(fiberJob.company);
+      if (fComp && this.isValidCompanyName(fComp, title)) {
+        company = fComp;
+      }
+    }
+
+    // Strategy 7: Fallback to document company link ONLY if verified by description
+    if (!company) {
+      const docCoLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/co/"]'));
+      for (const cl of docCoLinks) {
+        const text = this.cleanCompanyName(cl.textContent);
+        if (text && this.isValidCompanyName(text, title)) {
+          if (!description || description.toLowerCase().includes(text.toLowerCase())) {
+            company = text;
+            break;
+          }
         }
       }
     }
@@ -357,30 +533,18 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       return null;
     }
 
-    const salary = this.extractSalaryFromDOM(detailsPane) || this.extractSalaryFromDOM(document);
-    let location: string | null = null;
-    if (description) {
-      location = this.extractLocationFromText(description);
-    }
-    if (!location && detailsPane !== document) {
-      location = this.extractLocationFromDOM(detailsPane);
-    }
-    if (!location && document.title) {
-      const docLocMatch = document.title.match(/\bjob\s+in,\s*([^|@]+?)(?:\s+at\s+|\s*\||$)/i);
-      if (docLocMatch && docLocMatch[1]) {
-        const candidate = docLocMatch[1].trim();
-        if (candidate && candidate.length > 2 && candidate.length < 60) {
-          location = candidate;
-        }
-      }
-    }
-    if (!location) {
-      location = this.extractLocationFromDOM(document);
-    }
+    const salary = this.extractSalaryFromDOM(detailsPane) || 
+                   fiberJob?.salary || 
+                   (!isSearchPage ? this.extractSalaryFromDOM(document) : null);
 
-    const workModel = this.extractWorkModelFromText(description) || 
+    const location = this.extractZipRecruiterLocation(detailsPane, description) || 
+                     fiberJob?.location || 
+                     null;
+
+    const workModel = fiberJob?.workModel || 
+                      this.extractWorkModelFromText(description) || 
                       this.extractWorkModelFromText(location) || 
-                      this.extractWorkModelFromText((detailsPane as HTMLElement).innerText || document.body.innerText);
+                      this.extractWorkModelFromText((detailsPane as HTMLElement).innerText || "");
 
     return {
       title,
@@ -414,6 +578,24 @@ export class ZipRecruiterExtractor extends BaseExtractor {
       if (el && el.textContent && el.textContent.trim().length > 150) {
         description = this.htmlToText(el.innerHTML);
         break;
+      }
+    }
+
+    // Check container following "Job description" heading
+    if (!description) {
+      const allHeaders = Array.from(detailsPane.querySelectorAll<HTMLElement>('h2, h3, h4, div, span'));
+      const descHeader = allHeaders.find(el => /^(?:Job\s+description|Job\s+Summary|About\s+the\s+Role)$/i.test((el.textContent || '').trim()));
+      if (descHeader) {
+        if (descHeader.nextElementSibling && (descHeader.nextElementSibling.textContent || '').trim().length > 100) {
+          description = this.htmlToText(descHeader.nextElementSibling.innerHTML);
+        } else if (descHeader.parentElement) {
+          const parentClone = descHeader.parentElement.cloneNode(true) as HTMLElement;
+          const h = parentClone.querySelector('h1, h2, h3, h4');
+          if (h) h.remove();
+          if ((parentClone.textContent || '').trim().length > 150) {
+            description = this.htmlToText(parentClone.innerHTML);
+          }
+        }
       }
     }
 
