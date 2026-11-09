@@ -54,8 +54,7 @@ async function performQuickExtract(): Promise<void> {
     const simplified = jobs.map((job: JobResult) => ({
       "role name": job.title,
       company: job.company,
-      "job url": job.link,
-      "direct apply url": job.applyUrl || job.link,
+      "job url": job.applyUrl || job.link,
       platform: job.platform || "Generic",
       salary: job.salary || null,
       location: job.location || null,

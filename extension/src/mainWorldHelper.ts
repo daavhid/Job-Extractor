@@ -22,6 +22,22 @@ export async function extractMainWorldPageData(): Promise<{
       if (!u || typeof u !== "string") return null;
       let cur = u.trim();
 
+      // Check for ZipRecruiter match_token (protobuf base64 containing target ATS URL)
+      if (cur.includes("match_token=")) {
+        try {
+          const m = cur.match(/match_token=([^&]+)/);
+          if (m) {
+            let b64 = decodeURIComponent(m[1]);
+            while (b64.length % 4 !== 0) b64 += "=";
+            const decoded = atob(b64);
+            const foundUrl = decoded.match(/https?:\/\/[^\s"'<>\x00-\x1f]+/);
+            if (foundUrl && (foundUrl[0].startsWith("http://") || foundUrl[0].startsWith("https://"))) {
+              cur = decodeURIComponent(foundUrl[0]);
+            }
+          }
+        } catch {}
+      }
+
       // Check for base64-encoded URL (e.g. ZipRecruiter match_token: aHR0c...)
       const b64Idx = cur.indexOf("aHR0c");
       if (b64Idx !== -1) {
@@ -45,6 +61,19 @@ export async function extractMainWorldPageData(): Promise<{
           const p = new URL(cur);
           const r = p.searchParams.get("url") || p.searchParams.get("q") || p.searchParams.get("dest") || p.searchParams.get("target") || p.searchParams.get("redirect") || p.searchParams.get("u") || p.searchParams.get("match_token");
           if (r) {
+            if (r.includes("match_token=") || p.searchParams.has("match_token")) {
+              const tok = p.searchParams.get("match_token") || r;
+              try {
+                let b64 = decodeURIComponent(tok);
+                while (b64.length % 4 !== 0) b64 += "=";
+                const dec = atob(b64);
+                const matchUrl = dec.match(/https?:\/\/[^\s"'<>\x00-\x1f]+/);
+                if (matchUrl) {
+                  cur = decodeURIComponent(matchUrl[0]);
+                  continue;
+                }
+              } catch {}
+            }
             if (r.includes("aHR0c")) {
               const b64Sub = r.substring(r.indexOf("aHR0c"));
               const m = b64Sub.match(/^[A-Za-z0-9+/=%_-]+/);
@@ -73,19 +102,76 @@ export async function extractMainWorldPageData(): Promise<{
       return cur;
     }
 
+    function isRootOrBoardIndex(u: any): boolean {
+      if (!u || typeof u !== "string") return true;
+      try {
+        const parsed = new URL(u, window.location.href);
+        const host = parsed.hostname.toLowerCase();
+        const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+        const segments = path.split("/").filter(Boolean);
+
+        // Bare homepage or standard static page
+        if (segments.length === 0 && !parsed.search && !parsed.hash) return true;
+        if (["home", "index", "index.html", "en", "en-us", "us", "about", "contact", "privacy", "terms"].includes(segments[0]) && segments.length === 1 && !parsed.search && !parsed.hash) return true;
+
+        // Greenhouse board root or marketing/docs/login
+        if (host.includes("greenhouse.io") || host.includes("greenhouse.com")) {
+          if (host === "www.greenhouse.com" || host === "greenhouse.com" || host.includes("cdn.greenhouse.io") || host.startsWith("my.greenhouse")) return true;
+          // Greenhouse job URLs contain /jobs/<id> or token/gh_jid params
+          if (segments.length <= 1 && !parsed.searchParams.get("gh_jid") && !parsed.searchParams.get("token")) return true;
+        }
+
+        // Lever board root
+        if (host.includes("lever.co")) {
+          if (host === "www.lever.co" || host === "lever.co") return true;
+          if (segments.length <= 1) return true;
+        }
+
+        // Ashby board root
+        if (host.includes("ashbyhq.com")) {
+          if (host === "www.ashbyhq.com" || host === "ashbyhq.com") return true;
+          if (segments.length <= 1) return true;
+        }
+
+        // Workable board root
+        if (host.includes("workable.com")) {
+          if (!path.includes("/j/")) return true;
+        }
+
+        // SmartRecruiters board root
+        if (host.includes("smartrecruiters.com")) {
+          if (segments.length <= 1) return true;
+        }
+
+        // Rippling board root
+        if (host.includes("rippling.com")) {
+          if (segments.length <= 2 && (segments[1] === "jobs" || segments.length <= 1)) return true;
+        }
+
+        // BambooHR board root
+        if (host.includes("bamboohr.com")) {
+          if ((segments.includes("careers") || segments.includes("jobs")) && segments.length <= 1 && !parsed.searchParams.get("id")) return true;
+        }
+
+        // Generic /careers or /jobs root
+        if ((segments[0] === "careers" || segments[0] === "jobs" || segments[0] === "career") && segments.length === 1 && !parsed.search && !parsed.hash) {
+          return true;
+        }
+
+        return false;
+      } catch {
+        return false;
+      }
+    }
+
     function isCareerUrl(u: any): boolean {
       if (!u || typeof u !== "string") return false;
       const unwrapped = unwrapUrl(u) || u;
       const low = unwrapped.toLowerCase().trim();
       if (!low.startsWith("http://") && !low.startsWith("https://")) return false;
-      try {
-        const p = new URL(unwrapped);
-        const path = p.pathname.replace(/\/+$/, "").toLowerCase();
-        if (path === "" && !p.search && !p.hash) return false;
-        if (["/home", "/index", "/index.html", "/en", "/en-us", "/us"].includes(path) && !p.search && !p.hash) return false;
-      } catch {
-        return false;
-      }
+      if (low.endsWith(".pdf") || low.endsWith(".doc") || low.endsWith(".docx")) return false;
+      if (low.includes("/users/sign_in") || low.includes("/login") || low.includes("/signin") || low.includes("/auth")) return false;
+      if (isRootOrBoardIndex(unwrapped)) return false;
       if (low.includes("ziprecruiter.com") && !low.includes("job-redirect")) return false;
       return !blacklisted.some(b => low.includes(b));
     }
@@ -181,6 +267,8 @@ export async function extractMainWorldPageData(): Promise<{
                     }
                   }
                   const candUrls = [
+                    j.companyApplyUrl, j.applyMethod?.companyApplyUrl,
+                    j.offsiteApplyUrl, j.externalApplyUrl, j.easyApplyUrl,
                     j.apply_url, j.applyUrl, j.application_url, j.applicationUrl,
                     j.source_url, j.sourceUrl, j.external_url, j.externalUrl,
                     j.original_url, j.originalUrl, j.job_url, j.jobUrl,
@@ -194,11 +282,14 @@ export async function extractMainWorldPageData(): Promise<{
                     }
                   }
                 }
-                for (const p of ["applyUrl", "apply_url", "applicationUrl", "application_url", "externalUrl", "external_url", "sourceUrl", "source_url", "originalUrl", "original_url", "targetUrl", "target_url", "redirectUrl", "redirect_url", "jobUrl", "job_url", "url", "link", "href"]) {
+                for (const p of ["companyApplyUrl", "offsiteApplyUrl", "externalApplyUrl", "easyApplyUrl", "applyUrl", "apply_url", "applicationUrl", "application_url", "externalUrl", "external_url", "sourceUrl", "source_url", "originalUrl", "original_url", "targetUrl", "target_url", "redirectUrl", "redirect_url", "jobUrl", "job_url", "url", "link", "href"]) {
                   if (typeof props[p] === "string" && isCareerUrl(props[p]) && !applyUrl) {
                     applyUrl = unwrapUrl(props[p]) || props[p];
                     break;
                   }
+                }
+                if (props.applyMethod && typeof props.applyMethod.companyApplyUrl === "string" && isCareerUrl(props.applyMethod.companyApplyUrl) && !applyUrl) {
+                  applyUrl = unwrapUrl(props.applyMethod.companyApplyUrl) || props.applyMethod.companyApplyUrl;
                 }
               }
               if (applyUrl && isRichJobObject(jobData)) break;
@@ -238,6 +329,8 @@ export async function extractMainWorldPageData(): Promise<{
                   if (cj && typeof cj === 'object' && isRichJobObject(cj)) {
                     jobData = Object.assign({}, cj, jobData || {});
                     const cUrls = [
+                      cj.companyApplyUrl, cj.applyMethod?.companyApplyUrl,
+                      cj.offsiteApplyUrl, cj.externalApplyUrl, cj.easyApplyUrl,
                       cj.apply_url, cj.applyUrl, cj.application_url, cj.applicationUrl,
                       cj.source_url, cj.sourceUrl, cj.external_url, cj.externalUrl,
                       cj.original_url, cj.originalUrl, cj.job_url, cj.jobUrl,
@@ -300,20 +393,24 @@ export async function extractMainWorldPageData(): Promise<{
       } catch {}
     }
 
-    // 6. Safe ATS links search
+    // 7. Safe ATS links search (only if current page is NOT already hosted on this ATS)
     if (!applyUrl) {
+      const currentHost = typeof window !== "undefined" && window.location ? window.location.hostname.toLowerCase() : "";
       const atsDomains = [
         'greenhouse.io', 'lever.co', 'ashbyhq.com', 'myworkdayjobs.com', 'workday.com',
         'smartrecruiters.com', 'taleo.net', 'icims.com', 'jobvite.com', 'bamboohr.com',
         'rippling.com', 'workable.com', 'recruitee.com', 'breezy.hr', 'paylocity.com'
       ];
-      const allAnchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
-      for (const a of allAnchors) {
-        if (a.href && isCareerUrl(a.href)) {
-          const low = a.href.toLowerCase();
-          if (atsDomains.some(d => low.includes(d))) {
-            applyUrl = unwrapUrl(a.href) || a.href;
-            break;
+      const isAlreadyOnAts = atsDomains.some(d => currentHost.includes(d));
+      if (!isAlreadyOnAts) {
+        const allAnchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
+        for (const a of allAnchors) {
+          if (a.href && isCareerUrl(a.href)) {
+            const low = a.href.toLowerCase();
+            if (atsDomains.some(d => low.includes(d))) {
+              applyUrl = unwrapUrl(a.href) || a.href;
+              break;
+            }
           }
         }
       }

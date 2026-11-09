@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "node init && vite",
+    "build": "node init && tsc && vite build",
     "zip": "pnpm build && powershell -Command \"Compress-Archive -Path dist\\* -DestinationPath dist.zip -Force\"",
     "preview": "vite preview"
   },

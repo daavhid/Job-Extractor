@@ -197,16 +197,23 @@ export class LinkedInExtractor extends BaseExtractor {
 
   private extractLocation(pane: ParentNode): string | null {
     const locSelectors = [
-      '.job-details-jobs-unified-top-card__bullet',
       '.job-details-jobs-unified-top-card__primary-description-container span',
+      '.job-details-jobs-unified-top-card__primary-description span',
+      '.job-details-jobs-unified-top-card__bullet',
       '.jobs-unified-top-card__bullet',
+      '.job-details-jobs-unified-top-card__tertiary-description',
+      '.artdeco-entity-lockup__caption',
       '.jobs-unified-top-card__workplace-type'
     ];
     for (const sel of locSelectors) {
       const els = Array.from(pane.querySelectorAll(sel));
       for (const el of els) {
         const text = this.cleanStr(el.textContent);
-        if (text && text.length > 2 && !text.includes("ago") && !text.includes("applicant") && !text.includes("repost")) {
+        if (text && text.length > 2 && !text.includes("ago") && !text.includes("applicant") && !text.includes("repost") && !text.includes("promoted")) {
+          const firstPart = text.split(/[·•|]/)[0]?.trim();
+          if (firstPart && firstPart.length > 2 && !firstPart.includes("ago") && !firstPart.includes("applicant")) {
+            return firstPart;
+          }
           return text;
         }
       }
@@ -249,42 +256,53 @@ export class LinkedInExtractor extends BaseExtractor {
   }
 
   /**
-   * Extracts the direct external ATS apply URL from LinkedIn's safety redirect wrapper
+   * Extracts the direct external ATS apply URL from LinkedIn's safety redirect wrapper or top-card apply button
    */
   private async extractRealApplyUrl(pane: ParentNode): Promise<string | null> {
     console.log("[LI Extractor] 🔍 Searching for direct ATS Apply link...");
 
-    // 1. Look for known ATS links directly
-    const directAts = this.findDirectApplyUrl(pane);
-    if (directAts) {
-      return directAts;
-    }
-
-    // 2. Look for safety/go redirect link
-    const applyLink = pane.querySelector<HTMLAnchorElement>('a[href*="safety/go"]') || 
-                      document.querySelector<HTMLAnchorElement>('a[href*="safety/go"]');
+    // 1. Look for safety/go redirect link in top-card or document
+    const applyLink = pane.querySelector<HTMLAnchorElement>('a[href*="safety/go"], a[href*="externalApply"]') || 
+                      document.querySelector<HTMLAnchorElement>('a[href*="safety/go"], a[href*="externalApply"]');
     if (applyLink) {
       try {
         const url = new URL(applyLink.href);
         const encoded = url.searchParams.get("url");
         if (encoded) {
           const realUrl = decodeURIComponent(encoded);
-          console.log("[LI Extractor] ✅ Real external apply URL decoded:", realUrl);
+          console.log("[LI Extractor] ✅ Real external apply URL decoded from safety/go:", realUrl);
           return realUrl;
         }
+        return applyLink.href;
       } catch (e) {
         console.warn("[LI Extractor] ⚠️ Failed to parse Apply URL:", e);
       }
     }
 
-    // 3. Look for external apply button anchors
-    const applyButtons = Array.from(pane.querySelectorAll<HTMLAnchorElement>('a.jobs-apply-button, a[data-control-name="jobdetails_topcard_inapply"]'));
-    for (const btn of applyButtons) {
-      if (btn.href && !btn.href.startsWith("javascript:") && !btn.href.includes("linkedin.com/jobs/view")) {
-        return btn.href;
+    // 2. Inspect the top-card apply buttons (e.g. .jobs-apply-button)
+    const topCardApplyBtns = Array.from(pane.querySelectorAll<HTMLElement>(
+      'a.jobs-apply-button, .jobs-apply-button a, a[data-control-name="jobdetails_topcard_inapply"], button.jobs-apply-button, [data-job-id] a'
+    ));
+
+    for (const btn of topCardApplyBtns) {
+      const anchor = (btn instanceof HTMLAnchorElement ? btn : btn.querySelector("a")) as HTMLAnchorElement | null;
+      if (anchor && anchor.href && !anchor.href.startsWith("javascript:") && !anchor.href.includes("linkedin.com/jobs/view")) {
+        const cleaned = this.cleanDirectUrl(anchor.href);
+        if (cleaned) {
+          console.log("[LI Extractor] ✅ External apply button URL found:", cleaned);
+          return cleaned;
+        }
       }
     }
 
+    // 3. Look for explicit known ATS links strictly in top-card / action areas (NOT inside description body)
+    const topCard = pane.querySelector('.jobs-unified-top-card, .job-details-jobs-unified-top-card, .job-view-layout header') || pane;
+    const topCardAts = this.findDirectApplyUrl(topCard);
+    if (topCardAts && !topCardAts.includes("linkedin.com")) {
+      return topCardAts;
+    }
+
+    // Easy Apply or internal listing — no external ATS link
     return null;
   }
 

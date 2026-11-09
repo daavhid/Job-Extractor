@@ -8,19 +8,25 @@ export class GenericExtractor extends BaseExtractor {
   async extract(mainWorldData?: any): Promise<JobResult[]> {
     console.log("[Generic Extractor] 🚀 Running generic extraction on:", window.location.href);
 
-    const jobPermalink = mainWorldData?.directLink || window.location.href;
+    const jobPermalink = this.cleanDirectUrl(mainWorldData?.directLink || window.location.href) || window.location.href;
 
     // 1. Try React Fiber inspection on main containers
     const fiberJob = this.extractFromReactFiber(document.querySelector("main, article, [role='main']") || document.body);
     if (fiberJob && fiberJob.title && (fiberJob.company || fiberJob.applyUrl || fiberJob.description)) {
       console.log("[Generic Extractor] ✅ Extracted job via React Fiber:", fiberJob);
-      const directApply = this.cleanDirectUrl(mainWorldData?.applyUrl || fiberJob.applyUrl || this.findDirectApplyUrl());
+      let directApply = this.cleanDirectUrl(mainWorldData?.applyUrl || fiberJob.applyUrl);
+      if (!directApply || this.isRootHomepage(directApply)) {
+        directApply = this.findDirectApplyUrl();
+      }
+      if (!directApply || this.isRootHomepage(directApply)) {
+        directApply = jobPermalink;
+      }
       return [{
         title: this.cleanStr(fiberJob.title),
         company: this.cleanStr(fiberJob.company) || this.findCompanyName(document, fiberJob.title),
         link: jobPermalink,
         description: this.cleanStr(fiberJob.description) || this.findDescriptionFromDOM(),
-        applyUrl: directApply || jobPermalink,
+        applyUrl: directApply,
         source: "detail-page",
         platform: "Generic",
         salary: fiberJob.salary || this.extractSalaryFromDOM(),
@@ -45,8 +51,9 @@ export class GenericExtractor extends BaseExtractor {
         if (!job.company) {
           job.company = this.findCompanyName(document, job.title);
         }
-        if (!job.applyUrl || job.applyUrl === window.location.href) {
-          job.applyUrl = this.findDirectApplyUrl() || job.applyUrl;
+        if (!job.applyUrl || this.isRootHomepage(job.applyUrl) || job.applyUrl === window.location.href) {
+          const direct = this.findDirectApplyUrl();
+          job.applyUrl = (direct && !this.isRootHomepage(direct)) ? direct : job.link;
         }
         if (!job.salary) {
           job.salary = this.extractSalaryFromDOM();
@@ -115,10 +122,16 @@ export class GenericExtractor extends BaseExtractor {
                       this.extractWorkModelFromText(location) || 
                       this.extractWorkModelFromText(document.body.innerText);
 
-    const jobPermalink = mainWorldData?.directLink || window.location.href;
+    const jobPermalink = this.cleanDirectUrl(mainWorldData?.directLink || window.location.href) || window.location.href;
 
     // E. Direct Apply URL
-    const directApplyUrl = (mainWorldData?.applyUrl ? this.cleanDirectUrl(mainWorldData.applyUrl) : null) || this.findDirectApplyUrl() || jobPermalink;
+    let directApplyUrl = mainWorldData?.applyUrl ? this.cleanDirectUrl(mainWorldData.applyUrl) : null;
+    if (!directApplyUrl || this.isRootHomepage(directApplyUrl)) {
+      directApplyUrl = this.findDirectApplyUrl();
+    }
+    if (!directApplyUrl || this.isRootHomepage(directApplyUrl)) {
+      directApplyUrl = jobPermalink;
+    }
 
     return {
       title: title || "Unknown Title",
